@@ -1,0 +1,78 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+    function isAdmin() { return isSignedIn() && request.auth.token.role == 'admin'; }
+    // Fallback: si aún no se propagó el custom claim, mirar el doc del propio usuario
+    function isAdminByDoc() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    function canAdmin() { return isAdmin() || isAdminByDoc(); }
+    // Permitir que admin (claim o doc) actualice cualquier campo de usuarios.
+    function adminUserUpdate(userId) {
+      return canAdmin();
+    }
+
+    // Default: deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Shifts
+    match /shifts/{dayId} {
+      allow read: if isSignedIn();
+      // Solo administradores pueden gestionar asignaciones de guardias
+      allow write: if isAdmin();
+    }
+
+    // Check-ins
+    match /checkins/{checkinId} {
+      allow create: if isOwner(request.resource.data.userId);
+      // Usuarios pueden leer sus propios check-ins; admins pueden leer todos
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      // Solo admin puede borrar (correcciones); nadie actualiza eventos (inmutables)
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // Attendance
+    match /attendance/{attendanceId} {
+      allow create: if isOwner(request.resource.data.userId);
+      // Usuarios pueden leer su propia asistencia; admins pueden leer toda
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // Users FCM tokens
+    match /users/{userId}/fcmTokens/{token} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow create, update, delete: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Users profiles (top-level)
+    match /users/{userId} {
+      // Admins can read any user; users can read their own
+  allow read: if canAdmin() || (isSignedIn() && request.auth.uid == userId);
+      // Users can create/update their own profile doc; delete is disabled
+      allow create: if isSignedIn() && request.auth.uid == userId;
+  // Update permitido si: el propio usuario modifica su doc, o un admin (por claim o doc) modifica cualquier cosa
+  allow update: if (isSignedIn() && request.auth.uid == userId) || adminUserUpdate(userId);
+      allow delete: if false;
+    }
+
+    // Schools metadata used for geofence
+    match /schools/{schoolId} {
+      allow read: if isSignedIn();
+      allow write: if false; // Admin only in production
+    }
+
+    // Ping collection for connectivity checks (optional)
+    match /_ping/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}

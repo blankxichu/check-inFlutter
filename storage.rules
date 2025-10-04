@@ -1,0 +1,22 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() { return request.auth != null; }
+
+    // Allow each user to read/write only their own attendance photos
+    match /attendance/{userId}/{allPaths=**} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Avatares de usuario - path más específico y permisos claros
+    match /avatars/{userId}/{fileName} {
+      allow write: if isSignedIn() && request.auth.uid == userId;
+      allow read: if isSignedIn();
+    }
+
+    // Default deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

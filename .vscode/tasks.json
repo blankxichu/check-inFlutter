@@ -1,0 +1,19 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Flutter: Run on device 2A271FDH300EQ1",
+			"type": "shell",
+			"command": "flutter",
+			"args": [
+				"run",
+				"-d",
+				"2A271FDH300EQ1"
+			],
+			"problemMatcher": [
+				"$dart-json"
+			],
+			"group": "build"
+		}
+	]
+}
