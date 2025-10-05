@@ -60,7 +60,7 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: theme.colorScheme.surfaceContainerHighest.withOpacity(0.35),
+  backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
         foregroundColor: theme.colorScheme.onSurface,
         title: _ChatTitle(chatId: widget.chatId, myUid: myUid),
         elevation: 1,

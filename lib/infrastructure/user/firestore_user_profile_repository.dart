@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:guardias_escolares/domain/user/entities/user_profile.dart';
 import 'package:guardias_escolares/domain/user/value_objects/user_stats.dart';
 import 'package:guardias_escolares/domain/user/value_objects/user_preferences.dart';
@@ -108,15 +109,12 @@ class FirestoreUserProfileRepository implements UserProfileRepository {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
       
-      // ignore: avoid_print
-      print('updateStats SUCCESS for uid=$uid with stats=$statsData');
+      debugPrint('updateStats SUCCESS for uid=$uid with stats=$statsData');
     } on FirebaseException catch (e) {
-      // ignore: avoid_print  
-      print('updateStats FAILED for uid=$uid, code=${e.code}, message=${e.message}, stats=$statsData');
+      debugPrint('updateStats FAILED for uid=$uid, code=${e.code}, message=${e.message}, stats=$statsData');
       throw Exception('updateStats_failed(${e.code}): ${e.message} | statsData=$statsData');
     } catch (e) {
-      // ignore: avoid_print
-      print('updateStats UNKNOWN ERROR for uid=$uid: $e');
+      debugPrint('updateStats UNKNOWN ERROR for uid=$uid: $e');
       rethrow;
     }
   }

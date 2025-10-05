@@ -246,12 +246,10 @@ class _AvatarView extends ConsumerWidget {
       final uri = await repo.getDownloadUri(clean).timeout(const Duration(seconds: 6));
       return uri.toString();
     } on TimeoutException catch (_) {
-      // ignore: avoid_print
-      print('[Avatar] Timeout obteniendo URL para $path');
+      debugPrint('[Avatar] Timeout obteniendo URL para $path');
       return null; // fallback icon
     } catch (e) {
-      // ignore: avoid_print
-      print('[Avatar] Error obteniendo URL: $e');
+      debugPrint('[Avatar] Error obteniendo URL: $e');
       return null;
     }
   }

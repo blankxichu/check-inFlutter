@@ -33,7 +33,7 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         labelStyle: TextStyle(color: lightScheme.onSurfaceVariant),
-        hintStyle: TextStyle(color: lightScheme.onSurfaceVariant.withOpacity(0.7)),
+  hintStyle: TextStyle(color: lightScheme.onSurfaceVariant.withValues(alpha: 0.7)),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),

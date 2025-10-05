@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:guardias_escolares/domain/user/value_objects/user_stats.dart';
+import 'package:flutter/foundation.dart';
 
 /// Test directo para debuggear updateStats sin capas adicionales
 class TestStatsUpdate {
@@ -8,19 +8,19 @@ class TestStatsUpdate {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
-        print('ERROR: No hay usuario autenticado');
+        debugPrint('ERROR: No hay usuario autenticado');
         return;
       }
       
       final uid = user.uid;
-      print('Testing updateStats para uid: $uid');
+      debugPrint('Testing updateStats para uid: $uid');
       
       // Test 1: Leer documento actual
       final docRef = FirebaseFirestore.instance.collection('users').doc(uid);
       final snap = await docRef.get();
-      print('Documento existe: ${snap.exists}');
+      debugPrint('Documento existe: ${snap.exists}');
       if (snap.exists) {
-        print('Datos actuales: ${snap.data()}');
+        debugPrint('Datos actuales: ${snap.data()}');
       }
       
       // Test 2: Intentar escritura mínima
@@ -31,7 +31,7 @@ class TestStatsUpdate {
         'lastCheckInAt': Timestamp.now(),
       };
       
-      print('Intentando escribir stats: $testStats');
+  debugPrint('Intentando escribir stats: $testStats');
       
       await docRef.set({
         'uid': uid,
@@ -40,20 +40,20 @@ class TestStatsUpdate {
         'testFlag': 'debug_${DateTime.now().millisecondsSinceEpoch}',
       }, SetOptions(merge: true));
       
-      print('SUCCESS: Escritura completada sin errores');
+  debugPrint('SUCCESS: Escritura completada sin errores');
       
       // Test 3: Verificar escritura
       final newSnap = await docRef.get();
-      print('Datos después de escribir: ${newSnap.data()}');
+      debugPrint('Datos después de escribir: ${newSnap.data()}');
       
     } catch (e, stack) {
-      print('ERROR en test directo: $e');
-      print('Stack: $stack');
+      debugPrint('ERROR en test directo: $e');
+      debugPrint('Stack: $stack');
       
       if (e is FirebaseException) {
-        print('Firebase error code: ${e.code}');
-        print('Firebase error message: ${e.message}');
-        print('Firebase error plugin: ${e.plugin}');
+        debugPrint('Firebase error code: ${e.code}');
+        debugPrint('Firebase error message: ${e.message}');
+        debugPrint('Firebase error plugin: ${e.plugin}');
       }
     }
   }
@@ -62,21 +62,21 @@ class TestStatsUpdate {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
-        print('No user authenticated');
+        debugPrint('No user authenticated');
         return;
       }
       
-      print('User UID: ${user.uid}');
-      print('User email: ${user.email}');
-      print('User token result:');
+      debugPrint('User UID: ${user.uid}');
+      debugPrint('User email: ${user.email}');
+      debugPrint('User token result:');
       
       final token = await user.getIdTokenResult();
-      print('Claims: ${token.claims}');
-      print('Auth time: ${token.authTime}');
-      print('Issued at: ${token.issuedAtTime}');
+      debugPrint('Claims: ${token.claims}');
+      debugPrint('Auth time: ${token.authTime}');
+      debugPrint('Issued at: ${token.issuedAtTime}');
       
     } catch (e) {
-      print('Error getting user info: $e');
+      debugPrint('Error getting user info: $e');
     }
   }
 }

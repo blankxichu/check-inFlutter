@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:guardias_escolares/domain/shifts/entities/shift.dart';
 import 'package:guardias_escolares/domain/shifts/repositories/shift_repository.dart';
 
@@ -25,8 +26,7 @@ class FirestoreShiftRepository implements ShiftRepository {
         .snapshots()
         .handleError((e) {
           // Log y devolver stream vacío
-          // ignore: avoid_print
-          print('watchMonth error: $e');
+          debugPrint('watchMonth error: $e');
         })
         .map((snap) => _mapQuery(snap));
   }
@@ -40,8 +40,7 @@ class FirestoreShiftRepository implements ShiftRepository {
           .get();
       return _mapQuery(q);
     } on FirebaseException catch (e) {
-      // ignore: avoid_print
-      print('getRange Firestore error: ${e.code} ${e.message}');
+  debugPrint('getRange Firestore error: ${e.code} ${e.message}');
       if (e.code == 'permission-denied') {
         // Devuelve vacío para que el calendario no truene
         return <Shift>[];
@@ -157,8 +156,7 @@ class FirestoreShiftRepository implements ShiftRepository {
         tx.set(ref, data, SetOptions(merge: true));
       });
     } on FirebaseException catch (e) {
-      // ignore: avoid_print
-      print('reserve Firestore error: ${e.code} ${e.message}');
+  debugPrint('reserve Firestore error: ${e.code} ${e.message}');
       if (e.code == 'permission-denied') {
         throw StateError('Sin permisos para reservar turno.');
       }
@@ -185,8 +183,7 @@ class FirestoreShiftRepository implements ShiftRepository {
         tx.set(ref, data, SetOptions(merge: true));
       });
     } on FirebaseException catch (e) {
-      // ignore: avoid_print
-      print('cancel Firestore error: ${e.code} ${e.message}');
+  debugPrint('cancel Firestore error: ${e.code} ${e.message}');
       if (e.code == 'permission-denied') {
         throw StateError('Sin permisos para cancelar turno.');
       }

@@ -120,13 +120,13 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
                 final id = _dayId(day);
                 final occ = state.occupancy[id] ?? 0;
                     final isMine = state.assignedDayIds.contains(id);
-                    return _DayCell(day: day, occupancy: occ, mine: isMine, highlight: Colors.indigo.withOpacity(0.15));
+                    return _DayCell(day: day, occupancy: occ, mine: isMine, highlight: Colors.indigo.withValues(alpha: 0.15));
               },
               selectedBuilder: (context, day, focusedDay) {
                 final id = _dayId(day);
                 final occ = state.occupancy[id] ?? 0;
                     final isMine = state.assignedDayIds.contains(id);
-                    return _DayCell(day: day, occupancy: occ, mine: isMine, highlight: Colors.green.withOpacity(0.2));
+                    return _DayCell(day: day, occupancy: occ, mine: isMine, highlight: Colors.green.withValues(alpha: 0.2));
               },
             ),
           ),
@@ -198,8 +198,9 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
       if (!mounted) return;
       setState(() => _errorDay = e.toString());
     } finally {
-      if (!mounted) return;
-      setState(() => _loadingDay = false);
+      if (mounted) {
+        setState(() => _loadingDay = false);
+      }
     }
   }
 
@@ -332,11 +333,11 @@ class _DayCell extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: (mine ? Colors.green.withOpacity(0.18) : null) ?? highlight ?? cs.surface,
+  color: (mine ? Colors.green.withValues(alpha: 0.18) : null) ?? highlight ?? cs.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: cs.outlineVariant),
         boxShadow: [
-          BoxShadow(color: cs.shadow.withOpacity(0.05), blurRadius: 6, offset: const Offset(0, 2)),
+          BoxShadow(color: cs.shadow.withValues(alpha: 0.05), blurRadius: 6, offset: const Offset(0, 2)),
         ],
       ),
       child: Stack(

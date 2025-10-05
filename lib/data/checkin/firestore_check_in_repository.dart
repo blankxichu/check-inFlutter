@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:guardias_escolares/domain/checkin/entities/check_in.dart';
 import 'package:guardias_escolares/domain/checkin/repositories/check_in_repository.dart';
 import 'package:guardias_escolares/core/config/app_config.dart';
@@ -130,8 +131,7 @@ class FirestoreCheckInRepository implements CheckInRepository {
       return allResults.take(limit).toList();
       
     } catch (e) {
-      // ignore: avoid_print
-      print('fetchUserCheckIns ERROR: $e');
+      debugPrint('fetchUserCheckIns ERROR: $e');
       // Si la query falla, retornar lista vacía en lugar de crashear
       return <CheckIn>[];
     }

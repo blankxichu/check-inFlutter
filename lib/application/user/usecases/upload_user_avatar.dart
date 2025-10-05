@@ -1,5 +1,5 @@
-import 'package:guardias_escolares/domain/user/repositories/user_profile_repository.dart';
-import 'package:guardias_escolares/domain/user/repositories/user_profile_repository.dart' show AvatarRepository;
+import 'package:guardias_escolares/domain/user/repositories/user_profile_repository.dart'
+  show AvatarRepository, UserProfileRepository;
 
 /// Use case: subir avatar, validar y actualizar perfil.
 class UploadUserAvatar {

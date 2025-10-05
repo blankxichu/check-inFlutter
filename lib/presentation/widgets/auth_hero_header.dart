@@ -11,8 +11,8 @@ class AuthHeroHeader extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     // Tweak contrast per mode: in dark, lower saturation but slightly higher opacity for visibility
-    final start = cs.primary.withOpacity(isDark ? 0.10 : 0.18);
-    final end = cs.secondary.withOpacity(isDark ? 0.12 : 0.16);
+  final start = cs.primary.withValues(alpha: isDark ? 0.10 : 0.18);
+  final end = cs.secondary.withValues(alpha: isDark ? 0.12 : 0.16);
     final circlePrimaryOpacity = isDark ? 0.12 : 0.08;
     final circleTertiaryOpacity = isDark ? 0.10 : 0.08;
     final iconOverlayOpacity = isDark ? 0.30 : 0.25;
@@ -45,17 +45,17 @@ class AuthHeroHeader extends StatelessWidget {
             Positioned(
               top: 18,
               right: 18,
-              child: Icon(Icons.calendar_month, color: cs.primary.withOpacity(iconOverlayOpacity), size: 48),
+              child: Icon(Icons.calendar_month, color: cs.primary.withValues(alpha: iconOverlayOpacity), size: 48),
             ),
             Positioned(
               bottom: 16,
               left: 18,
-              child: Icon(Icons.shield_outlined, color: cs.secondary.withOpacity(iconOverlayOpacity), size: 56),
+              child: Icon(Icons.shield_outlined, color: cs.secondary.withValues(alpha: iconOverlayOpacity), size: 56),
             ),
             Positioned(
               bottom: 16,
               right: 72,
-              child: Icon(Icons.school_outlined, color: cs.tertiary.withOpacity(isDark ? 0.28 : 0.23), size: 40),
+              child: Icon(Icons.school_outlined, color: cs.tertiary.withValues(alpha: isDark ? 0.28 : 0.23), size: 40),
             ),
             // Text content
             Padding(
@@ -95,7 +95,7 @@ class AuthHeroHeader extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: color.withOpacity(opacity),
+  color: color.withValues(alpha: opacity),
       ),
     );
   }

@@ -139,7 +139,7 @@ class _CheckInExportPageState extends ConsumerState<CheckInExportPage> {
             pw.SizedBox(height: 4),
             pw.Text('Rango: ${_fmtDate(_from)} a ${_fmtDate(_to)}  (Sesiones: ${sessions.length})  Total: ${totalFmt()}', style: pw.TextStyle(fontSize: 11)),
             pw.SizedBox(height: 12),
-            pw.Table.fromTextArray(
+            pw.TableHelper.fromTextArray(
               headers: ['Día','Entrada','Salida','Duración','In','Out'],
               headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
               cellStyle: const pw.TextStyle(fontSize: 10),
@@ -173,7 +173,7 @@ class _CheckInExportPageState extends ConsumerState<CheckInExportPage> {
       final dir = await getTemporaryDirectory();
       savedPath='${dir.path}/reporte_personal_checkins_${DateTime.now().millisecondsSinceEpoch}.pdf';
       final f = File(savedPath); await f.writeAsBytes(bytes, flush: true);
-      if(!mounted) return; ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF guardado: '+savedPath)));
+      if(!mounted) return; ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF guardado: $savedPath')));
     }
     // Compartir archivo (siempre generamos uno local si impresión directa) 
     try {
@@ -260,7 +260,7 @@ class _CheckInExportPageState extends ConsumerState<CheckInExportPage> {
               Row(children: [
                 Icon(Icons.timer_outlined, size: 18, color: cs.primary),
                 const SizedBox(width: 6),
-                Text('Total horas: ' + _formatDuration(_totalWorked), style: Theme.of(context).textTheme.bodyMedium),
+                Text('Total horas: ${_formatDuration(_totalWorked)}', style: Theme.of(context).textTheme.bodyMedium),
                 const Spacer(),
                 if(_hasMore) TextButton.icon(onPressed: _paging? null : () => _load(reset: false), icon: _paging? const SizedBox(width:16,height:16,child:CircularProgressIndicator(strokeWidth:2)) : const Icon(Icons.expand_more), label: Text(_paging? 'Cargando...' : 'Más')),
               ]),

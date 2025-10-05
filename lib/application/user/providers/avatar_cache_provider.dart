@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:guardias_escolares/application/user/providers/user_profile_providers.dart';
 
@@ -13,12 +14,10 @@ final avatarUrlProvider = FutureProvider.family<String?, String>((ref, avatarPat
         .timeout(const Duration(seconds: 8));
     return uri.toString();
   } on TimeoutException {
-    // ignore: avoid_print
-    print('Timeout getting avatar URL, will fallback to direct path (no cache bust).');
+    debugPrint('Timeout getting avatar URL, fallback to direct path (no cache bust).');
     return null; // allow UI to show placeholder instead of spinner
   } catch (e) {
-    // ignore: avoid_print
-    print('Error caching avatar URL: $e');
+    debugPrint('Error caching avatar URL: $e');
     return null; // placeholder
   }
 });

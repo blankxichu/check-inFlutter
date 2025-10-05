@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:flutter/services.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:guardias_escolares/domain/shifts/entities/shift.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -336,8 +335,9 @@ class _UsersAdminViewState extends ConsumerState<_UsersAdminView> {
       if (!mounted) return;
       setState(() { _error = e.toString(); });
     } finally {
-      if (!mounted) return;
-      setState(() { _loading = false; });
+      if (mounted) {
+        setState(() { _loading = false; });
+      }
     }
   }
 
@@ -593,8 +593,9 @@ class _UsersAdminViewState extends ConsumerState<_UsersAdminView> {
         setState(() { _listHasMore = false; });
       }
     } finally {
-      if (!mounted) return;
-      setState(() { _listLoading = false; });
+      if (mounted) {
+        setState(() { _listLoading = false; });
+      }
     }
   }
 
@@ -1051,7 +1052,7 @@ class _CheckInsViewState extends ConsumerState<_CheckInsView> {
           build: (ctx) => [
             pw.Text(title, style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
             pw.SizedBox(height: 8),
-            pw.Table.fromTextArray(
+            pw.TableHelper.fromTextArray(
               headers: tableHeaders,
               headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
               cellStyle: const pw.TextStyle(fontSize: 9),
@@ -1539,11 +1540,9 @@ class _NewAssignShiftFormState extends ConsumerState<_NewAssignShiftForm> {
           if (capacity != null) 'capacity': capacity,
         };
         try {
-          // ignore: avoid_print
-          print('[assignMultipleShifts][revert-multi] sending $payload');
+          debugPrint('[assignMultipleShifts][revert-multi] sending $payload');
           final resp = await callable.call(payload);
-          // ignore: avoid_print
-          print('[assignMultipleShifts][revert-multi] ok ${resp.data}');
+          debugPrint('[assignMultipleShifts][revert-multi] ok ${resp.data}');
           success++;
         } catch (e) {
           failures.add('$day: ${e.toString()}');
@@ -1573,8 +1572,9 @@ class _NewAssignShiftFormState extends ConsumerState<_NewAssignShiftForm> {
       if (!mounted) return;
       setState(() => _error = e.toString());
     } finally {
-      if (!mounted) return;
-      setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 

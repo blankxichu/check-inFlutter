@@ -1,19 +1,19 @@
-/// Script de desarrollo: Limpia campo 'uid' redundante de fcmTokens
-/// 
-/// USO (solo para admins):
-/// 1. Importar en main.dart o ejecutar en debug:
-///    import 'package:guardias_escolares/dev/cleanup_tokens_script.dart';
-/// 
-/// 2. Llamar la función:
-///    await runTokenCleanupMigration(dryRun: true); // Preview primero
-///    await runTokenCleanupMigration(dryRun: false); // Ejecutar después
-/// 
-/// 3. O desde Flutter DevTools console:
-///    runTokenCleanupMigration(dryRun: true)
-/// 
-/// REQUISITOS:
-/// - Usuario actual debe tener role: 'admin' en Firestore
-/// - Cloud Function 'cleanupTokensRedundantUid' desplegada
+// Script de desarrollo: Limpia campo 'uid' redundante de fcmTokens
+//
+// USO (solo para admins):
+// 1. Importar en main.dart o ejecutar en debug:
+//    import 'package:guardias_escolares/dev/cleanup_tokens_script.dart';
+//
+// 2. Llamar la función:
+//    await runTokenCleanupMigration(dryRun: true); // Preview primero
+//    await runTokenCleanupMigration(dryRun: false); // Ejecutar después
+//
+// 3. O desde Flutter DevTools console:
+//    runTokenCleanupMigration(dryRun: true)
+//
+// REQUISITOS:
+// - Usuario actual debe tener role: 'admin' en Firestore
+// - Cloud Function 'cleanupTokensRedundantUid' desplegada
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';

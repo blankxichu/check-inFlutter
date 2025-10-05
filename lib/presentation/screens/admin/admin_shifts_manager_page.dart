@@ -249,9 +249,9 @@ class _AdminShiftsManagerPageState extends State<AdminShiftsManagerPage> {
     final isSelected = _selectedEntries.contains(entry.uniqueId);
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      color: _selectionMode && isSelected
-          ? theme.colorScheme.primaryContainer.withOpacity(0.35)
-          : null,
+    color: _selectionMode && isSelected
+      ? theme.colorScheme.primaryContainer.withValues(alpha: 0.35)
+      : null,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: ListTile(

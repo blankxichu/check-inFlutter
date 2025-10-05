@@ -39,7 +39,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [cs.primary.withOpacity(0.08), cs.secondary.withOpacity(0.08)],
+                colors: [cs.primary.withValues(alpha: 0.08), cs.secondary.withValues(alpha: 0.08)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
