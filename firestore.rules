@@ -55,7 +55,9 @@ service cloud.firestore {
     // Users profiles (top-level)
     match /users/{userId} {
       // Admins can read any user; users can read their own
-  allow read: if canAdmin() || (isSignedIn() && request.auth.uid == userId);
+      // TEMPORAL (chat user picker): permitir a cualquier usuario autenticado leer perfiles para listado y búsqueda
+      // TODO: Si se requiere restringir campos sensibles (ej. role), migrar a colección "publicProfiles" o callable search.
+      allow read: if canAdmin() || isSignedIn();
       // Users can create/update their own profile doc; delete is disabled
       allow create: if isSignedIn() && request.auth.uid == userId;
   // Update permitido si: el propio usuario modifica su doc, o un admin (por claim o doc) modifica cualquier cosa
@@ -73,6 +75,52 @@ service cloud.firestore {
     match /_ping/{doc} {
       allow read: if true;
       allow write: if false;
+    }
+
+    // --------------------- CHAT ---------------------
+    // chats/{chatId} contiene metadata: participants[], lastMessage, unread{uid:int}, updatedAt, createdAt
+    // Solo participantes (o admin) pueden leer el chat. Escritura limitada:
+    //  - Crear chat: requiere que request.auth.uid esté incluido en participants (inmutable después de creación inicial en esta fase MVP)
+    //  - Actualizar: solo para marcar unread=0 propio o admin; lastMessage y unread agregados reales los ajusta Cloud Function.
+    match /chats/{chatId} {
+      allow read: if isSignedIn() && (canAdmin() || (request.auth.uid in resource.data.participants));
+      allow create: if isSignedIn() && (request.resource.data.participants is list) &&
+        (request.auth.uid in request.resource.data.participants) &&
+        // participants tamaño razonable (1 a 20)
+        (request.resource.data.participants.size() >= 1 && request.resource.data.participants.size() <= 20);
+      allow update: if isSignedIn() && (
+        canAdmin() || (
+          // Permitir que participante ponga su contador unread propio a 0
+          (request.auth.uid in resource.data.participants) &&
+          request.resource.data.unread[request.auth.uid] == 0 &&
+          // No permitir manipular contadores de otros ni participants ni lastMessage arbitrario
+          request.resource.data.participants == resource.data.participants &&
+          request.resource.data.lastMessage == resource.data.lastMessage
+        )
+      );
+      allow delete: if false; // Sin borrado en MVP
+    }
+
+    // Mensajes: chats/{chatId}/messages/{messageId}
+    // Crear: participante autenticado y senderId == su uid
+    // Leer: participantes o admin
+    // Update: solo para añadir (o establecer) marca de lectura propia en readBy.{uid}=timestamp
+    // Delete: no permitido
+    match /chats/{chatId}/messages/{messageId} {
+      allow read: if isSignedIn() && (canAdmin() || (request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants));
+      allow create: if isSignedIn() && request.resource.data.senderId == request.auth.uid &&
+        (request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants) &&
+        (request.resource.data.text is string) && (request.resource.data.text.size() > 0) && (request.resource.data.text.size() <= 5000);
+      allow update: if isSignedIn() &&
+        (request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants) &&
+        // Campos inmutables excepto readBy
+        request.resource.data.senderId == resource.data.senderId &&
+        request.resource.data.text == resource.data.text &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.status == resource.data.status &&
+        // Debe incluir marca propia en readBy
+        (request.resource.data.readBy[request.auth.uid] is timestamp);
+      allow delete: if false;
     }
   }
 }

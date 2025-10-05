@@ -1,5 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import * as admin from 'firebase-admin';
 
 admin.initializeApp();
@@ -11,74 +13,136 @@ const db = admin.firestore();
 // pertenece a otro usuario, eliminamos el doc local y NO enviamos a ese token.
 async function sanitizeUserTokens(targetUid: string, tokens: string[]): Promise<string[]> {
   // Hotfix flag: desactivar sanitización avanzada para recuperar entregas rápidas
-  const ENABLE_TOKEN_SANITIZE = false;
+  const ENABLE_TOKEN_SANITIZE = false; // ⚠️ DESACTIVADO: collectionGroup requiere índice que causa FAILED_PRECONDITION
   if (!ENABLE_TOKEN_SANITIZE) {
     return tokens; // skip logic
   }
   if (tokens.length === 0) return [];
-  const MAX_IN = 10; // límite Firestore 'in'
-  const chunks: string[][] = [];
-  if (tokens.length <= MAX_IN) {
-    chunks.push(tokens);
-  } else {
-    for (let i = 0; i < tokens.length; i += MAX_IN) {
-      chunks.push(tokens.slice(i, i + MAX_IN));
-    }
-  }
-  const allDupDocs: FirebaseFirestore.QueryDocumentSnapshot[] = [];
-  for (const ch of chunks) {
-    const snap = await db.collectionGroup('fcmTokens').where('token', 'in', ch).get();
-    allDupDocs.push(...snap.docs);
-  }
-  // Agrupar por token
-  const byToken: Record<string, FirebaseFirestore.QueryDocumentSnapshot[]> = {};
-  for (const d of allDupDocs) {
-    const tk = (d.get('token') as string) || d.id;
-    if (!byToken[tk]) byToken[tk] = [];
-    byToken[tk].push(d);
-  }
-  const valid: string[] = [];
-  const now = Date.now();
-  for (const tk of tokens) {
-    const docs = byToken[tk] || [];
-    if (docs.length === 0) {
-      // No se encontraron duplicados via collectionGroup (posible inconsistencia si faltó 'token' field); conservar tentativamente
-      valid.push(tk);
-      continue;
-    }
-    // Seleccionar doc con updatedAt más reciente
-    let best: FirebaseFirestore.QueryDocumentSnapshot | undefined;
-    let bestTs = -1;
-    for (const doc of docs) {
-      const ts = doc.get('updatedAt');
-      let ms = 0;
-      if (ts && typeof ts.toDate === 'function') {
-        ms = ts.toDate().getTime();
-      } else {
-        // Fallback: usar createTime si no hay updatedAt
-        try { ms = doc.createTime.toDate().getTime(); } catch { ms = now - 1000000; }
-      }
-      if (ms > bestTs) { bestTs = ms; best = doc; }
-    }
-    if (!best) continue;
-    const bestUser = best.ref.parent.parent?.id;
-    // Borrar duplicados que no son best
-    for (const doc of docs) {
-      if (doc.id === best.id) continue;
-      try { await doc.ref.delete(); } catch (_) {}
-    }
-    if (bestUser === targetUid) {
-      valid.push(tk);
+
+  try {
+    const MAX_IN = 10; // límite Firestore 'in'
+    const chunks: string[][] = [];
+    if (tokens.length <= MAX_IN) {
+      chunks.push(tokens);
     } else {
-      // El token está más actualizado en otro usuario -> eliminar copia local en targetUid si existe
-      try { await db.collection('users').doc(targetUid).collection('fcmTokens').doc(tk).delete(); } catch (_) {}
+      for (let i = 0; i < tokens.length; i += MAX_IN) {
+        chunks.push(tokens.slice(i, i + MAX_IN));
+      }
     }
+    const allDupDocs: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+    for (const ch of chunks) {
+      try {
+        const snap = await db.collectionGroup('fcmTokens').where('token', 'in', ch).get();
+        allDupDocs.push(...snap.docs);
+      } catch (error) {
+        console.error('[sanitizeUserTokens] fallback (query failed)', { targetUid, chunkSize: ch.length, error });
+        return tokens; // No arriesgar bloqueo; usar lista original
+      }
+    }
+    // Agrupar por token
+    const byToken: Record<string, FirebaseFirestore.QueryDocumentSnapshot[]> = {};
+    for (const d of allDupDocs) {
+      const tk = (d.get('token') as string) || d.id;
+      if (!byToken[tk]) byToken[tk] = [];
+      byToken[tk].push(d);
+    }
+    const valid: string[] = [];
+    const now = Date.now();
+    for (const tk of tokens) {
+      const docs = byToken[tk] || [];
+      if (docs.length === 0) {
+        // No se encontraron duplicados via collectionGroup (posible inconsistencia si faltó 'token' field); conservar tentativamente
+        valid.push(tk);
+        continue;
+      }
+      // Seleccionar doc con updatedAt más reciente
+      let best: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+      let bestTs = -1;
+      for (const doc of docs) {
+        const ts = doc.get('updatedAt');
+        let ms = 0;
+        if (ts && typeof ts.toDate === 'function') {
+          ms = ts.toDate().getTime();
+        } else {
+          // Fallback: usar createTime si no hay updatedAt
+          try { ms = doc.createTime.toDate().getTime(); } catch { ms = now - 1000000; }
+        }
+        if (ms > bestTs) { bestTs = ms; best = doc; }
+      }
+      if (!best) continue;
+      const bestUser = best.ref.parent.parent?.id;
+      // Borrar duplicados que no son best
+      for (const doc of docs) {
+        if (doc.id === best.id) continue;
+        try { await doc.ref.delete(); } catch (_) {}
+      }
+      if (bestUser === targetUid) {
+        valid.push(tk);
+      } else {
+        // El token está más actualizado en otro usuario -> eliminar copia local en targetUid si existe
+        try { await db.collection('users').doc(targetUid).collection('fcmTokens').doc(tk).delete(); } catch (_) {}
+      }
+    }
+    if (valid.length === 0 && tokens.length > 0) {
+      console.warn('[sanitizeUserTokens] All tokens filtered for', targetUid, 'falling back to original list of', tokens.length);
+      return tokens; // fallback defensivo
+    }
+    return valid;
+  } catch (error) {
+    console.error('[sanitizeUserTokens] fatal fallback', {
+      targetUid,
+      tokenCount: tokens.length,
+      error,
+    });
+    return tokens;
   }
-  if (valid.length === 0 && tokens.length > 0) {
-    console.warn('[sanitizeUserTokens] All tokens filtered for', targetUid, 'falling back to original list of', tokens.length);
-    return tokens; // fallback defensivo
+}
+
+const INVALID_TOKEN_ERROR_CODES = new Set([
+  'messaging/registration-token-not-registered',
+  'messaging/invalid-registration-token',
+  'messaging/unregistered',
+]);
+
+type PushErrorDetail = { token: string; code?: string; message?: string };
+
+function analyzeMulticastResult(tokens: string[], res: admin.messaging.BatchResponse) {
+  const invalid: string[] = [];
+  const otherErrors: PushErrorDetail[] = [];
+  res.responses.forEach((response, index) => {
+    if (response.success) return;
+    const token = tokens[index];
+    const code = response.error?.code;
+    const message = response.error?.message;
+    if (code && INVALID_TOKEN_ERROR_CODES.has(code)) {
+      invalid.push(token);
+    } else {
+      otherErrors.push({ token, code, message });
+    }
+  });
+  return { invalid, otherErrors };
+}
+
+async function handleMulticastCleanup(uid: string, tokens: string[], res: admin.messaging.BatchResponse) {
+  const { invalid, otherErrors } = analyzeMulticastResult(tokens, res);
+  if (invalid.length) {
+    const batch = db.batch();
+    for (const token of invalid) {
+      const ref = db.collection('users').doc(uid).collection('fcmTokens').doc(token);
+      batch.delete(ref);
+    }
+    await batch.commit();
+    console.log('[push] Removed invalid tokens for', uid, invalid);
   }
-  return valid;
+  if (otherErrors.length) {
+    console.warn('[push] Non-invalid errors for', uid, otherErrors);
+  }
+  return {
+    success: res.successCount,
+    failure: res.failureCount,
+    invalidRemoved: invalid.length,
+    errors: otherErrors,
+  };
 }
 
 // Callable to send a test notification to a given uid
@@ -90,8 +154,9 @@ export const sendTestNotification = onCall(async (request) => {
   if (!uid) throw new Error('invalid-argument: uid is required');
 
   const tokensSnap = await db.collection('users').doc(uid).collection('fcmTokens').get();
-  const tokens = tokensSnap.docs.map(d => d.id);
-  if (tokens.length === 0) return { sent: 0 };
+  let tokens = tokensSnap.docs.map(d => d.id);
+  tokens = await sanitizeUserTokens(uid, tokens);
+  if (tokens.length === 0) return { sent: 0, failure: 0, invalidRemoved: 0, errors: [] };
 
   const message: admin.messaging.MulticastMessage = {
     tokens,
@@ -99,7 +164,8 @@ export const sendTestNotification = onCall(async (request) => {
     data: { body },
   };
   const res = await admin.messaging().sendEachForMulticast(message);
-  return { sent: res.successCount, failed: res.failureCount };
+  const summary = await handleMulticastCleanup(uid, tokens, res);
+  return { sent: res.successCount, failed: res.failureCount, ...summary };
 });
 
 // Callable to set user role via custom claims. Requires caller to be admin OR provide bootstrap secret
@@ -165,11 +231,12 @@ export const scheduledShiftReminders = onSchedule('0 18 * * *', async (event) =>
   if (users.length === 0) return null;
 
   // For each user, collect tokens and send a reminder
-  const tokenBatches: string[][] = [];
+  const tokenBatches: Array<{ uid: string; tokens: string[] }> = [];
   for (const uid of users) {
     const tSnap = await db.collection('users').doc(uid).collection('fcmTokens').get();
-    const t = tSnap.docs.map(d => d.id);
-    if (t.length) tokenBatches.push(t);
+    let t = tSnap.docs.map(d => d.id);
+    t = await sanitizeUserTokens(uid, t);
+    if (t.length) tokenBatches.push({ uid, tokens: t });
   }
   if (tokenBatches.length === 0) return null;
 
@@ -177,13 +244,15 @@ export const scheduledShiftReminders = onSchedule('0 18 * * *', async (event) =>
   const body = `Mañana tienes guardia (${dayId}).`;
 
   // Send in batches to respect FCM limits
-  for (const tokens of tokenBatches) {
+  for (const target of tokenBatches) {
+    const { uid, tokens } = target;
     const msg: admin.messaging.MulticastMessage = {
       tokens,
       notification: { title, body },
       data: { body },
     };
-    await admin.messaging().sendEachForMulticast(msg);
+    const res = await admin.messaging().sendEachForMulticast(msg);
+    await handleMulticastCleanup(uid, tokens, res);
   }
   return null;
 });
@@ -247,6 +316,43 @@ export const cleanupOldFcmTokensNow = onCall(async () => {
   }
   if (ops > 0) await batch.commit();
   return { deleted, checked: snap.size, cutoff: cutoff.toDate().toISOString() };
+});
+
+// ---------------------------------------------------------------------------
+// Migración: generar photoUrl para usuarios que sólo tengan avatarPath
+// Uso: callable invocado desde un admin (o bootstrap) que recorre bloques de usuarios.
+// data: { batch?: number, size?: number }
+// Retorna: { processed, updated }
+// ---------------------------------------------------------------------------
+export const migrateAvatarPhotoUrls = onCall(async (request) => {
+  const caller = request.auth;
+  const callerIsAdmin = !!caller && (caller.token as any)?.role === 'admin';
+  if (!callerIsAdmin) {
+    throw new HttpsError('permission-denied', 'Sólo admin');
+  }
+  const data = request.data as { batch?: number; size?: number };
+  const batchIndex = data.batch ?? 0;
+  const size = Math.min(Math.max(data.size ?? 50, 1), 200);
+  const usersSnap = await db.collection('users')
+    .orderBy(admin.firestore.FieldPath.documentId())
+    .offset(batchIndex * size)
+    .limit(size)
+    .get();
+  if (usersSnap.empty) return { processed: 0, updated: 0, done: true };
+  let updated = 0;
+  for (const doc of usersSnap.docs) {
+    const d = doc.data() as any;
+    if (d.photoUrl || !d.avatarPath) continue; // ya tiene o no aplica
+    try {
+      const fileRef = admin.storage().bucket().file(d.avatarPath);
+      const [url] = await fileRef.getSignedUrl({ action: 'read', expires: Date.now() + 1000 * 60 * 60 * 24 * 30 }); // 30 días
+      await doc.ref.set({ photoUrl: url }, { merge: true });
+      updated++;
+    } catch (e) {
+      console.warn('migrateAvatarPhotoUrls error', doc.id, e);
+    }
+  }
+  return { processed: usersSnap.size, updated, done: usersSnap.size < size };
 });
 
 // Callable para asignar o quitar una guardia a un usuario (solo admin)
@@ -358,6 +464,9 @@ export const assignShift = onCall({ enforceAppCheck: false }, async (request) =>
         if (users.length >= capacity) {
           throw new HttpsError('failed-precondition', 'El día alcanzó la capacidad máxima');
         }
+
+        // (normalizedSearch helpers moved to bottom of file)
+
         users.push(targetUid!);
         userWasAdded = true;
       }
@@ -478,11 +587,9 @@ export const assignShift = onCall({ enforceAppCheck: false }, async (request) =>
           },
         };
         const res = await admin.messaging().sendEachForMulticast(msg);
-        console.log('[assignShift] result success=', res.successCount, 'failure=', res.failureCount);
-        if (res.successCount === 0 && tokens.length > 0) {
-          console.warn('[assignShift] No successes, retrying once');
-          try { await admin.messaging().sendEachForMulticast(msg); } catch (e) { console.error('[assignShift] retry failed', e); }
-        }
+        const summary = await handleMulticastCleanup(targetUid!, tokens, res);
+        console.log('[assignShift] result', summary);
+        return { ok: true, uid: targetUid, dayId, action, start: typeof startMin === 'number' ? minutesToHHmm(startMin) : undefined, end: typeof endMin === 'number' ? minutesToHHmm(endMin) : undefined, notified: action === 'assign', push: summary };
       } else {
         console.log('[assignShift] No tokens for user', targetUid, 'day:', dayId);
       }
@@ -490,8 +597,60 @@ export const assignShift = onCall({ enforceAppCheck: false }, async (request) =>
       console.error('Error enviando notificación assignShift', e);
     }
   }
+  return { ok: true, uid: targetUid, dayId, action, start: typeof startMin === 'number' ? minutesToHHmm(startMin) : undefined, end: typeof endMin === 'number' ? minutesToHHmm(endMin) : undefined, notified: action === 'assign', push: { success: 0, failure: 0, invalidRemoved: 0, errors: [] } };
+});
 
-  return { ok: true, uid: targetUid, dayId, action, start: typeof startMin === 'number' ? minutesToHHmm(startMin) : undefined, end: typeof endMin === 'number' ? minutesToHHmm(endMin) : undefined, notified: action === 'assign' };
+// ---------------------------------------------------------------------------
+// USERS: normalizedSearch helper & migration (para búsqueda por prefijo)
+// Campo derivado = (displayName|name + ' ' + email) -> lower, espacios colapsados.
+// ---------------------------------------------------------------------------
+function buildNormalizedSearch(data: FirebaseFirestore.DocumentData | undefined): string | null {
+  if (!data) return null;
+  const email = (data.email || '').toString();
+  const name = (data.displayName || data.name || '').toString();
+  if (!email && !name) return null;
+  const raw = `${name} ${email}`.toLowerCase().replace(/\s+/g, ' ').trim();
+  return raw || null;
+}
+
+export const normalizeUserSearch = onDocumentWritten('users/{userId}', async (event) => {
+  const after = event.data?.after;
+  if (!after) return; // deleted
+  const data = after.data();
+  if (!data) return;
+  const desired = buildNormalizedSearch(data);
+  const current = data.normalizedSearch as string | undefined;
+  if (desired && desired !== current) {
+    await after.ref.set({ normalizedSearch: desired }, { merge: true });
+  }
+});
+
+export const migrateNormalizedSearchUsers = onCall(async () => {
+  const pageSize = 300;
+  let updated = 0;
+  let examined = 0;
+  let cursor: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+  for (;;) {
+    let q = db.collection('users').orderBy(admin.firestore.FieldPath.documentId());
+    if (cursor) q = q.startAfter(cursor);
+    const snap = await q.limit(pageSize).get();
+    if (snap.empty) break;
+    const batch = db.batch();
+    for (const doc of snap.docs) {
+      examined++;
+      const data = doc.data();
+      const desired = buildNormalizedSearch(data);
+      const current = data.normalizedSearch as string | undefined;
+      if (desired && desired !== current) {
+        batch.set(doc.ref, { normalizedSearch: desired }, { merge: true });
+        updated++;
+      }
+    }
+    if (updated > 0) await batch.commit();
+    cursor = snap.docs[snap.docs.length - 1];
+    if (snap.size < pageSize) break; // última página
+  }
+  return { ok: true, examined, updated };
 });
 
 // Nueva callable: asignar varios turnos en una sola operación atómica.
@@ -562,11 +721,9 @@ export const assignMultipleShifts = onCall({ enforceAppCheck: false }, async (re
           data: { type: 'shift', day: data.day, body },
         };
         const res = await admin.messaging().sendEachForMulticast(msg);
-        console.log('[assignMultipleShifts] result success=', res.successCount, 'failure=', res.failureCount);
-        if (res.successCount === 0 && tokens.length > 0) {
-          console.warn('[assignMultipleShifts] No successes, retrying once');
-          try { await admin.messaging().sendEachForMulticast(msg); } catch (e) { console.error('[assignMultipleShifts] retry failed', e); }
-        }
+        const summary = await handleMulticastCleanup(targetUid!, tokens, res);
+        console.log('[assignMultipleShifts] result', summary);
+        return { ok:true, uid: targetUid, dayId: data.day, count: ranges.length, notified: true, push: summary };
       } else {
         console.log('[assignMultipleShifts] No tokens for user', targetUid, 'day:', data.day);
       }
@@ -574,7 +731,7 @@ export const assignMultipleShifts = onCall({ enforceAppCheck: false }, async (re
       console.error('Error enviando notificación assignMultipleShifts', e);
     }
   }
-  return { ok:true, uid: targetUid, dayId: data.day, count: ranges.length, notified: true };
+  return { ok:true, uid: targetUid, dayId: data.day, count: ranges.length, notified: true, push: { success: 0, failure: 0, invalidRemoved: 0, errors: [] } };
 });
 
 // Nueva callable: asignar mismos turnos en MULTIPLES días con UNA sola notificación.
@@ -685,4 +842,181 @@ export const getAssignedDaysForUserMonth = onCall({ enforceAppCheck: false }, as
     }
   }
   return { uid: targetUid, year, month, days };
+});
+
+// ---------------------------------------------------------------------------
+// CHAT: onMessageCreate trigger (Bloque A)
+// Estructura esperada:
+// chats/{chatId}
+//   participants: [uidA, uidB, ...]
+//   lastMessage: { text, senderId, createdAt }
+//   updatedAt: Timestamp
+//   createdAt: Timestamp (en creación inicial)
+//   unread: { uidA: number, uidB: number, ... }
+// chats/{chatId}/messages/{messageId}
+//   senderId: string
+//   text: string
+//   createdAt: Timestamp
+//   readBy: { uid: Timestamp } (opcional)
+//   status: 'sent'
+// Reglas (Bloque B) controlarán que solo participantes escriban.
+// Esta función:
+// 1. Actualiza lastMessage y updatedAt del chat.
+// 2. Incrementa contadores de unread para otros participantes.
+// 3. Envía push notification a los demás participantes.
+// NOTA: No modifica lógica existente de shifts.
+// ---------------------------------------------------------------------------
+export const onChatMessageCreate = onDocumentCreated('chats/{chatId}/messages/{messageId}', async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+  const messageData = snap.data() as any;
+  const chatRef = snap.ref.parent.parent; // chats/{chatId}
+  if (!chatRef) return;
+  const senderId: string = messageData.senderId;
+  const text: string = (messageData.text ?? '').toString();
+  const createdAt = messageData.createdAt || admin.firestore.FieldValue.serverTimestamp();
+
+  // Fetch chat doc (may not exist if not pre-created)
+  const chatSnap = await chatRef.get();
+  if (!chatSnap.exists) {
+    // Abort quietly - enforce creation beforehand to know participants
+    console.warn('[onChatMessageCreate] Chat doc missing for', chatRef.id);
+    return;
+  }
+  const chatData = chatSnap.data() as any;
+  const participants: string[] = Array.isArray(chatData.participants) ? chatData.participants : [];
+  if (!participants.includes(senderId)) {
+    console.warn('[onChatMessageCreate] Sender not in participants', senderId, chatRef.id);
+    return;
+  }
+  // Update unread counts and lastMessage atomically
+  const unread: Record<string, number> = typeof chatData.unread === 'object' && chatData.unread ? { ...chatData.unread } : {};
+  for (const uid of participants) {
+    if (uid === senderId) continue;
+    unread[uid] = (unread[uid] ?? 0) + 1;
+  }
+  const lastMessage = {
+    text: text.substring(0, 500), // limitar tamaño para índice
+    senderId,
+    createdAt: createdAt,
+  };
+  try {
+    // Asegurar readBy para el remitente inmediatamente
+    try {
+      await snap.ref.set({
+        readBy: { [senderId]: admin.firestore.FieldValue.serverTimestamp() },
+      }, { merge: true });
+    } catch (e) {
+      console.warn('[onChatMessageCreate] no se pudo set readBy inicial', e);
+    }
+    await chatRef.set({
+      lastMessage,
+      unread,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: chatData.createdAt || admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+  } catch (e) {
+    console.error('[onChatMessageCreate] Error updating chat metadata', e);
+  }
+
+  // Push notifications to other participants
+  try {
+    for (const uid of participants) {
+      if (uid === senderId) continue;
+      const tokensSnap = await db.collection('users').doc(uid).collection('fcmTokens').get();
+      let tokens = tokensSnap.docs.map(d => d.id);
+      tokens = await sanitizeUserTokens(uid, tokens);
+      if (!tokens.length) continue;
+      const body = text.length > 120 ? text.substring(0, 117) + '...' : text;
+      const msg: admin.messaging.MulticastMessage = {
+        tokens,
+        notification: { title: 'Nuevo mensaje', body },
+        data: {
+          type: 'chat',
+          chatId: chatRef.id,
+          senderId,
+          body,
+        },
+      };
+      const res = await admin.messaging().sendEachForMulticast(msg);
+      const summary = await handleMulticastCleanup(uid, tokens, res);
+      console.log('[onChatMessageCreate] sent to', uid, summary);
+    }
+  } catch (e) {
+    console.error('[onChatMessageCreate] push error', e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Migración: eliminar campo 'uid' redundante de fcmTokens existentes
+// Uso: callable invocado desde admin para optimizar documentos antiguos
+// data: { dryRun?: boolean, batchSize?: number }
+// Retorna: { scanned, cleaned, skipped }
+// ---------------------------------------------------------------------------
+export const cleanupTokensRedundantUid = onCall(async (request) => {
+  const caller = request.auth;
+  const callerIsAdmin = !!caller && (caller.token as any)?.role === 'admin';
+  if (!callerIsAdmin) {
+    throw new HttpsError('permission-denied', 'Sólo admin puede ejecutar esta migración');
+  }
+
+  const { dryRun = false, batchSize = 500 } = request.data as { dryRun?: boolean; batchSize?: number };
+  
+  console.log(`[cleanupTokensRedundantUid] Iniciando migración - dryRun=${dryRun}, batchSize=${batchSize}`);
+  
+  let scanned = 0;
+  let cleaned = 0;
+  let skipped = 0;
+
+  try {
+    const usersSnap = await db.collection('users').get();
+    
+    for (const userDoc of usersSnap.docs) {
+      const tokensSnap = await userDoc.ref.collection('fcmTokens').limit(batchSize).get();
+      
+      if (tokensSnap.empty) continue;
+      
+      const batch = db.batch();
+      let batchOps = 0;
+
+      for (const tokenDoc of tokensSnap.docs) {
+        scanned++;
+        const data = tokenDoc.data();
+        
+        // Si tiene el campo 'uid', eliminarlo
+        if (data.uid !== undefined) {
+          if (!dryRun) {
+            batch.update(tokenDoc.ref, { 
+              uid: admin.firestore.FieldValue.delete() 
+            });
+            batchOps++;
+          }
+          cleaned++;
+        } else {
+          skipped++;
+        }
+      }
+
+      // Ejecutar batch si hay operaciones
+      if (!dryRun && batchOps > 0) {
+        await batch.commit();
+        console.log(`[cleanupTokensRedundantUid] Usuario ${userDoc.id}: ${batchOps} tokens limpiados`);
+      }
+    }
+
+    const result = {
+      scanned,
+      cleaned,
+      skipped,
+      dryRun,
+      estimatedSavingsBytes: cleaned * 20, // ~20 bytes por campo uid eliminado
+    };
+
+    console.log('[cleanupTokensRedundantUid] Completado:', result);
+    return result;
+
+  } catch (error) {
+    console.error('[cleanupTokensRedundantUid] Error:', error);
+    throw new HttpsError('internal', `Error durante migración: ${error}`);
+  }
 });

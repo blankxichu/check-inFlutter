@@ -16,6 +16,7 @@ import 'package:hive_flutter/hive_flutter.dart' as hive;
 import 'package:firebase_crashlytics/firebase_crashlytics.dart' as crash;
 import 'package:flutter/foundation.dart';
 import 'package:guardias_escolares/core/cache/hive_cache_service.dart';
+import 'package:guardias_escolares/presentation/screens/admin/admin_shifts_manager_page.dart';
 
 // Callback global simple para abrir la pestaña "Asignar Guardias" con un día preseleccionado
 typedef AdminEditDayRequest = void Function(DateTime day);
@@ -81,6 +82,11 @@ class _AdminDashboardPageState extends ConsumerState<AdminDashboardPage> with Ti
         title: const Text('Admin Dashboard - Nueva Interfaz'),
         actions: [
           IconButton(
+            tooltip: 'Gestionar guardias',
+            icon: const Icon(Icons.delete_outline),
+            onPressed: _openShiftsManager,
+          ),
+          IconButton(
             tooltip: 'Estado',
             icon: const Icon(Icons.info_outline),
             onPressed: _openStatusSheet,
@@ -104,6 +110,16 @@ class _AdminDashboardPageState extends ConsumerState<AdminDashboardPage> with Ti
           _CheckInsView(),
           const _UsersAdminView(),
         ],
+      ),
+    );
+  }
+
+  void _openShiftsManager() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AdminShiftsManagerPage(
+          onOpenAssignDay: (day) => adminEditDayRequest?.call(day),
+        ),
       ),
     );
   }

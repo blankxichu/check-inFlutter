@@ -6,6 +6,7 @@ import 'package:guardias_escolares/domain/auth/repositories/auth_repository.dart
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:async';
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   // Prefer Firebase if initialized; otherwise, fall back to local in-memory repo
@@ -79,6 +80,8 @@ class AuthLoading extends AuthState {
 
 class AuthViewModel extends Notifier<AuthState> {
   late final AuthRepository _repo;
+  Timer? _presenceTimer;
+  String? _currentPresenceUid;
 
   @override
   AuthState build() {
@@ -99,6 +102,7 @@ class AuthViewModel extends Notifier<AuthState> {
     try {
       final user = await _repo.signInWithEmail(email: email, password: password);
       state = AuthAuthenticated(user);
+      _startPresence(user.uid);
     } catch (e) {
       state = AuthError(e.toString());
       state = const AuthUnauthenticated();
@@ -110,6 +114,7 @@ class AuthViewModel extends Notifier<AuthState> {
     try {
       final user = await _repo.signUpWithEmail(email: email, password: password, displayName: displayName);
       state = AuthAuthenticated(user);
+      _startPresence(user.uid);
     } catch (e) {
       state = AuthError(e.toString());
       state = const AuthUnauthenticated();
@@ -138,6 +143,43 @@ class AuthViewModel extends Notifier<AuthState> {
       }
     } catch (_) {}
     await _repo.signOut();
+    _stopPresence();
+  }
+
+  void _startPresence(String uid) {
+    _currentPresenceUid = uid;
+    _updatePresence(online: true);
+    _presenceTimer?.cancel();
+    _presenceTimer = Timer.periodic(const Duration(minutes: 2), (_) {
+      _updatePresence(online: true); // heartbeat
+    });
+  }
+
+  void _stopPresence() {
+    final uid = _currentPresenceUid;
+    _currentPresenceUid = null;
+    _presenceTimer?.cancel();
+    _presenceTimer = null;
+    if (uid != null) {
+      // Marcar offline con lastActiveAt
+      try {
+        FirebaseFirestore.instance.collection('users').doc(uid).set({
+          'online': false,
+          'lastActiveAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } catch (_) {}
+    }
+  }
+
+  void _updatePresence({required bool online}) {
+    final uid = _currentPresenceUid;
+    if (uid == null) return;
+    try {
+      FirebaseFirestore.instance.collection('users').doc(uid).set({
+        'online': online,
+        'lastActiveAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (_) {}
   }
 }
 

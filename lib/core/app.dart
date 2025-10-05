@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:guardias_escolares/presentation/screens/auth/login_page.dart';
 import 'package:guardias_escolares/presentation/screens/home/home_page.dart';
 import 'package:guardias_escolares/presentation/screens/calendar/calendar_page.dart';
+import 'package:guardias_escolares/presentation/screens/chat/chat_room_page.dart';
 import 'package:guardias_escolares/presentation/viewmodels/auth_view_model.dart';
 import 'package:guardias_escolares/core/notifications/push_messaging_service.dart';
 import 'package:guardias_escolares/domain/notifications/notification_event.dart';
@@ -40,6 +41,17 @@ class GuardiasApp extends ConsumerWidget {
         }
         NavigationService.instance.pushShiftCalendar(focusDay: focusDay);
         ref.read(activeScreenProvider.notifier).setCalendar(focusDay);
+      } else if (ev.type == 'chat') {
+        // ✅ NUEVO: Navegación directa a chat cuando usuario toca notificación
+        final chatId = ev.data['chatId'] as String?;
+        if (chatId != null && ev.opened) {
+          final nav = NavigationService.instance.navigatorKey.currentState;
+          if (nav != null) {
+            nav.push(MaterialPageRoute(
+              builder: (_) => ChatRoomPage(chatId: chatId),
+            ));
+          }
+        }
       }
     });
     // Asegurar que si hubo mensaje inicial antes de montar listener, lo reprocesamos ahora

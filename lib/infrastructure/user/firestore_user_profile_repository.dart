@@ -26,6 +26,7 @@ class FirestoreUserProfileRepository implements UserProfileRepository {
       email: (data['email'] ?? '') as String?,
       displayName: (data['displayName'] ?? data['name'] ?? '') as String?,
       avatarPath: (data['avatarPath'] ?? '') as String?,
+  photoUrl: (data['photoUrl'] ?? '') as String?,
       createdAt: ((data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.fromMillisecondsSinceEpoch(0)).toUtc(),
       updatedAt: ((data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.fromMillisecondsSinceEpoch(0)).toUtc(),
       role: role,
@@ -69,9 +70,12 @@ class FirestoreUserProfileRepository implements UserProfileRepository {
   }
 
   @override
-  Future<void> updateAvatarPath(String uid, String avatarPath, {DateTime? updatedAt}) async {
+  Future<void> updateAvatarPath(String uid, String avatarPath, {DateTime? updatedAt, String? photoUrl}) async {
+    // Guardamos tanto avatarPath (ruta interna) como photoUrl (descarga) para retro-compatibilidad con vistas existentes.
+    // Si en el futuro toda la app migra a avatarPath + getDownloadURL dinámico, se podrá eliminar photoUrl.
     await _col.doc(uid).set({
       'avatarPath': avatarPath,
+      if (photoUrl != null) 'photoUrl': photoUrl,
       'avatarUpdatedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));

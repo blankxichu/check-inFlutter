@@ -17,6 +17,27 @@ class _MemCheckInRepo implements CheckInRepository {
   }) async* {
     yield saved.where((e) => e.userId == userId).toList();
   }
+
+  @override
+  Future<CheckIn?> getLastCheckIn(String userId) async {
+    final list = saved.where((e) => e.userId == userId).toList()
+      ..sort((a,b)=> b.timestampUtc.compareTo(a.timestampUtc));
+    return list.isEmpty ? null : list.first;
+  }
+
+  @override
+  Future<List<CheckIn>> fetchUserCheckIns({
+    required String userId,
+    DateTime? fromUtc,
+    DateTime? toUtc,
+    int limit = 50,
+  }) async {
+    Iterable<CheckIn> list = saved.where((e) => e.userId == userId);
+    if (fromUtc != null) list = list.where((e) => e.timestampUtc.isAfter(fromUtc));
+    if (toUtc != null) list = list.where((e) => e.timestampUtc.isBefore(toUtc));
+    final ordered = list.toList()..sort((a,b)=> b.timestampUtc.compareTo(a.timestampUtc));
+    return ordered.take(limit).toList();
+  }
 }
 
 class _FixedGeofence implements GeofenceRepository {
@@ -29,7 +50,14 @@ class _FixedGeofence implements GeofenceRepository {
 void main() {
   test('fake repo saves and watches', () async {
     final r = _MemCheckInRepo();
-    final c = CheckIn(id: '1', userId: 'u1', timestampUtc: DateTime.now().toUtc(), latitude: 0, longitude: 0);
+    final c = CheckIn(
+      id: '1',
+      userId: 'u1',
+      timestampUtc: DateTime.now().toUtc(),
+      latitude: 0,
+      longitude: 0,
+      type: CheckInType.inEvent,
+    );
     await r.saveCheckIn(c);
     final list = await r.watchUserCheckIns(userId: 'u1').first;
     expect(list.length, 1);

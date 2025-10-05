@@ -48,6 +48,8 @@ class PushMessagingService {
   FirebaseFirestore? _db;
   final Ref ref;
 
+  static const bool _kVerboseLogging = true;
+
   PushMessagingService(this.ref, {FirebaseMessaging? fm, FirebaseFirestore? db})
       : _fm = fm,
         _db = db;
@@ -90,6 +92,12 @@ class PushMessagingService {
     }
 
     _fm ??= FirebaseMessaging.instance;
+    try {
+      await _fm!.setAutoInitEnabled(true);
+      _logDebug('Auto-init habilitado para FCM');
+    } catch (e, st) {
+      _logError('setAutoInitEnabled', e, st, nonFatal: true);
+    }
     _db ??= FirebaseFirestore.instance;
 
     // Background handler
@@ -114,9 +122,7 @@ class PushMessagingService {
       sound: true,
       provisional: false,
     );
-    if (kDebugMode) {
-      debugPrint('FCM permission status: ${settings.authorizationStatus}');
-    }
+    _logDebug('Permisos FCM -> ${settings.authorizationStatus}');
     // Persist simple flag for denied so UI can show banner until user dismisses
     try {
       final box = Hive.box('app_cache');
@@ -172,6 +178,7 @@ class PushMessagingService {
           );
           try { ref.read(notificationMetricsProvider.notifier).incrementDisplayed(); } catch (_) {}
           _maybeBufferForGrouping(provisionalEv);
+          _logDebug('Notificación foreground mostrada (type=${provisionalEv.type})');
         }
       } else {
         await NotificationService.instance.showSimple(id: 2, title: title, body: body);
@@ -205,58 +212,89 @@ class PushMessagingService {
 
   void _bindTokenToUserOnAuth() {
     // Guarda el token cada vez que cambia el estado de auth.
-    ref.listen(auth_vm.authViewModelProvider, (prev, next) async {
-      next.maybeWhen(
-        authenticated: (user) async {
-          try {
-            final token = await _fm!.getToken();
-            if (token != null) {
-              try {
-                await _saveToken(user.uid, token);
-              } catch (e) {
-                if (kDebugMode) {
-                  debugPrint('No se pudo guardar token FCM (permiso?): $e');
-                }
-                _logError('saveToken fallo inicial', e, null, nonFatal: true);
+    ref.listen<auth_vm.AuthState>(
+      auth_vm.authViewModelProvider,
+      (prev, next) async {
+        await _handleAuthState(next);
+      },
+      fireImmediately: true,
+    );
+
+    // También evaluar el estado actual por si el listener no recibe cambios (p.ej. usuario ya autenticado).
+    Future.microtask(() => _handleAuthState(ref.read(auth_vm.authViewModelProvider)));
+  }
+
+  Future<void> _handleAuthState(auth_vm.AuthState state) async {
+    if (state is! auth_vm.AuthAuthenticated) {
+      await _tokenRefreshSub?.cancel();
+      _tokenRefreshSub = null;
+    }
+    await state.maybeWhen(
+      authenticated: (user) async {
+        try {
+          final token = await _fetchTokenWithRetry();
+          if (token != null) {
+            _logDebug('Token FCM obtenido (${token.substring(0, 10)}...) para ${user.uid}');
+            try {
+              await _saveToken(user.uid, token);
+            } catch (e) {
+              if (kDebugMode) {
+                debugPrint('No se pudo guardar token FCM (permiso?): $e');
               }
+              _logError('saveToken fallo inicial', e, null, nonFatal: true);
             }
-            // Suscribirse a topic global siempre
-            _subscribeSafe('all');
-            // Si es admin (según rol en estado auth), suscribirse a admins
-            // Detección de rol admin (convertimos a string por si es enum/clase)
-            final roleStr = user.role.toString().toLowerCase();
-            final isAdmin = roleStr.contains('admin');
-            if (isAdmin) {
-              _subscribeSafe('admins');
-            } else {
-              // Aseguramos salir de admins si ya no es admin
-              _unsubscribeSafe('admins');
-            }
-            // Cancelar subs previas para no duplicar listeners
-            await _tokenRefreshSub?.cancel();
-            _tokenRefreshSub = _fm!.onTokenRefresh.listen((newToken) async {
-              try {
-                await _saveToken(user.uid, newToken);
-                // Reconfirmar suscripciones tras refresh (por seguridad)
-                _subscribeSafe('all');
-                if (isAdmin) _subscribeSafe('admins');
-              } catch (e, st) {
-                if (kDebugMode) {
-                  debugPrint('No se pudo actualizar token FCM: $e');
-                }
-                _logError('update token refresh', e, st, nonFatal: true);
-              }
-            });
-          } catch (e) {
-            if (kDebugMode) {
-              debugPrint('Error obteniendo token FCM: $e');
-            }
-            _logError('getToken fallo', e, null, nonFatal: true);
           }
-        },
-        orElse: () {},
-      );
-    });
+          // Suscribirse a topic global siempre
+          _subscribeSafe('all');
+          // Si es admin (según rol en estado auth), suscribirse a admins
+          final roleStr = user.role.toString().toLowerCase();
+          final isAdmin = roleStr.contains('admin');
+          if (isAdmin) {
+            _subscribeSafe('admins');
+          } else {
+            _unsubscribeSafe('admins');
+          }
+          await _tokenRefreshSub?.cancel();
+          _tokenRefreshSub = _fm!.onTokenRefresh.listen((newToken) async {
+            try {
+              await _saveToken(user.uid, newToken);
+              _subscribeSafe('all');
+              if (isAdmin) _subscribeSafe('admins');
+              _logDebug('Token FCM actualizado (${newToken.substring(0, 10)}...)');
+            } catch (e, st) {
+              if (kDebugMode) {
+                debugPrint('No se pudo actualizar token FCM: $e');
+              }
+              _logError('update token refresh', e, st, nonFatal: true);
+            }
+          });
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('Error obteniendo token FCM: $e');
+          }
+          _logError('getToken fallo', e, null, nonFatal: true);
+        }
+      },
+      orElse: () async {},
+    );
+  }
+
+  Future<String?> _fetchTokenWithRetry() async {
+    const attempts = 3;
+    for (var i = 1; i <= attempts; i++) {
+      try {
+        final token = await _fm!.getToken();
+        if (token != null && token.isNotEmpty) {
+          return token;
+        }
+        _logDebug('getToken intento $i devolvió null');
+      } catch (e, st) {
+        _logError('getToken intento $i', e, st, nonFatal: true);
+      }
+      await Future.delayed(Duration(milliseconds: 500 * i));
+    }
+    _logDebug('No se pudo obtener token FCM tras $attempts intentos');
+    return null;
   }
 
   Future<void> _saveToken(String uid, String token) async {
@@ -264,7 +302,7 @@ class PushMessagingService {
       'token': token,
       'platform': Platform.isAndroid ? 'android' : Platform.isIOS ? 'ios' : 'other',
       'updatedAt': FieldValue.serverTimestamp(),
-      'uid': uid,
+      // ✅ Campo 'uid' eliminado: redundante con la ruta users/{uid}/fcmTokens/{token}
     };
     int attempts = 0;
     while (true) {
@@ -276,20 +314,10 @@ class PushMessagingService {
             .collection('fcmTokens')
             .doc(token)
             .set(data, SetOptions(merge: true));
-        // Intenta detectar si este token aparece en otro usuario y limpiarlo (best-effort)
-        try {
-          final dupSnap = await _db!.collectionGroup('fcmTokens').where('token', isEqualTo: token).get();
-          for (final d in dupSnap.docs) {
-            final parentUserId = d.reference.parent.parent?.id;
-            if (parentUserId != null && parentUserId != uid) {
-              // Token mal asociado en otro usuario → eliminar
-              await d.reference.delete();
-            }
-          }
-        } catch (_) {}
         if (kDebugMode) {
           debugPrint('Saved FCM token for $uid (${token.substring(0, 8)}...)');
         }
+        _logDebug('Token FCM persistido para $uid (len=${token.length})');
         crash.FirebaseCrashlytics.instance.log('FCM token guardado: ${token.substring(0,8)} para $uid');
         return;
       } on FirebaseException catch (e) {
@@ -415,7 +443,7 @@ class PushMessagingService {
   }
 
   void _logError(String ctx, Object e, StackTrace? st, {bool nonFatal = true}) {
-    if (kDebugMode) {
+    if (_kVerboseLogging || kDebugMode) {
       debugPrint('[PushMessagingService] $ctx -> $e');
     }
     if (nonFatal) {
@@ -423,6 +451,15 @@ class PushMessagingService {
     } else {
       crash.FirebaseCrashlytics.instance.recordError(e, st, reason: ctx, fatal: true);
     }
+  }
+
+  void _logDebug(String message) {
+    if (_kVerboseLogging || kDebugMode) {
+      debugPrint('[PushMessagingService] $message');
+    }
+    try {
+      crash.FirebaseCrashlytics.instance.log('PushDbg: $message');
+    } catch (_) {}
   }
 
   Future<void> _subscribeSafe(String topic) async {

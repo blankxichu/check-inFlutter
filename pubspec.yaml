@@ -60,6 +60,7 @@ dependencies:
   # Without declaring it explicitly some platforms may not initialize the plugin leading to
   # "Bad state: databaseFactory not initialized" when the cache manager tries to open its DB.
   sqflite: ^2.3.3
+  intl: ^0.20.0
 
 dev_dependencies:
   flutter_test:

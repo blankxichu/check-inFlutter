@@ -139,6 +139,8 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                                 Text(prof?.email ?? user.email ?? '', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
                                 const SizedBox(height: 4),
                                 Chip(label: Text((prof?.role.name ?? 'parent').toUpperCase())),
+                                const SizedBox(height: 6),
+                                const Text('Toca el círculo para cambiar tu avatar', style: TextStyle(fontSize: 11, color: Colors.black54)),
                               ],
                             ),
                           ),

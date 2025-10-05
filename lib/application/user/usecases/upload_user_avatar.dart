@@ -23,6 +23,18 @@ class UploadUserAvatar {
     }
     
     final path = await avatars.uploadAvatarBytes(uid: uid, bytes: bytes, extension: extension.toLowerCase());
-    await profiles.updateAvatarPath(uid, path, updatedAt: DateTime.now().toUtc());
+    // Obtener URL pública inmediata para compatibilidad con componentes que esperan photoUrl directo.
+    Uri? download;
+    try {
+      download = await avatars.getDownloadUri(path);
+    } catch (_) {
+      // Silencioso: si falla, UI podrá resolverla luego dinámicamente.
+    }
+    await profiles.updateAvatarPath(
+      uid,
+      path,
+      updatedAt: DateTime.now().toUtc(),
+      photoUrl: download?.toString(),
+    );
   }
 }

@@ -8,6 +8,7 @@ class RichUserProfile {
   final String? email;
   final String? displayName;
   final String? avatarPath; // ruta interna en Storage (no URL pública)
+  final String? photoUrl; // URL directa (cacheada) cuando está disponible
   final DateTime createdAt;
   final DateTime updatedAt;
   final UserRole role;
@@ -19,6 +20,7 @@ class RichUserProfile {
     this.email,
     this.displayName,
     this.avatarPath,
+    this.photoUrl,
     required this.createdAt,
     required this.updatedAt,
     this.role = UserRole.parent,
@@ -30,6 +32,7 @@ class RichUserProfile {
     String? email,
     String? displayName,
     String? avatarPath,
+  String? photoUrl,
     DateTime? createdAt,
     DateTime? updatedAt,
     UserRole? role,
@@ -40,6 +43,7 @@ class RichUserProfile {
         email: email ?? this.email,
         displayName: displayName ?? this.displayName,
         avatarPath: avatarPath ?? this.avatarPath,
+    photoUrl: photoUrl ?? this.photoUrl,
         createdAt: createdAt ?? this.createdAt,
         updatedAt: updatedAt ?? this.updatedAt,
         role: role ?? this.role,

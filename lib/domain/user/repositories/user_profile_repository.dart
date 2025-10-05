@@ -7,7 +7,9 @@ abstract class UserProfileRepository {
   Future<RichUserProfile?> fetchById(String uid);
   Stream<RichUserProfile?> watchById(String uid);
   Future<void> updateDisplayName(String uid, String displayName);
-  Future<void> updateAvatarPath(String uid, String avatarPath, {DateTime? updatedAt});
+  /// Actualiza el path interno del avatar en Storage y opcionalmente un `photoUrl` (descarga pública)
+  /// para compatibilidad con UI existente (UserPickerPage usa photoUrl si existe).
+  Future<void> updateAvatarPath(String uid, String avatarPath, {DateTime? updatedAt, String? photoUrl});
   Future<void> updatePreferences(String uid, UserPreferences prefs);
   Future<void> updateStats(String uid, UserStats stats);
 }
