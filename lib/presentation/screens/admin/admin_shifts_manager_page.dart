@@ -9,10 +9,17 @@ import 'package:guardias_escolares/core/cache/hive_cache_service.dart';
 
 typedef AdminShiftDayCallback = void Function(DateTime day);
 class _ShiftEditorResult {
-  const _ShiftEditorResult({required this.ranges, this.capacity});
+  const _ShiftEditorResult({
+    required this.day,
+    required this.ranges,
+    this.capacity,
+  });
 
+  final DateTime day;
   final List<ShiftInterval> ranges;
   final int? capacity;
+
+  String get dayId => DateFormat('yyyy-MM-dd').format(day);
 }
 
 class AdminShiftsManagerPage extends StatefulWidget {
@@ -282,7 +289,7 @@ class _AdminShiftsManagerPageState extends State<AdminShiftsManagerPage> {
                           value: _EntryAction.edit,
                           child: ListTile(
                             leading: Icon(Icons.edit_outlined),
-                            title: Text('Editar horarios'),
+                            title: Text('Editar guardia'),
                           ),
                         ),
                         const PopupMenuItem<_EntryAction>(
@@ -433,7 +440,7 @@ class _AdminShiftsManagerPageState extends State<AdminShiftsManagerPage> {
         return _ShiftEditorSheet(
           title: 'Editar guardia',
           userLabel: label,
-          dayLabel: entry.dayId,
+          initialDay: entry.date,
           initialRanges: entry.intervals,
           timeOptions: _timeOptions,
           initialCapacity: entry.capacity,
@@ -448,17 +455,35 @@ class _AdminShiftsManagerPageState extends State<AdminShiftsManagerPage> {
     setState(() => _busyEntryId = entry.uniqueId);
     try {
       final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
-      await functions.httpsCallable('assignMultipleShifts').call({
+      final newDayId = result.dayId;
+      final oldDayId = entry.dayId;
+      if (newDayId != oldDayId) {
+        await functions.httpsCallable('assignShift').call({
+          'uid': entry.userId,
+          'day': oldDayId,
+          'action': 'unassign',
+        });
+        await _cleanupDayDocument(oldDayId);
+      }
+      final payload = <String, dynamic>{
         'uid': entry.userId,
-        'day': entry.dayId,
+        'day': newDayId,
         'shifts': result.ranges
             .map((r) => <String, String>{'start': r.start, 'end': r.end})
             .toList(),
-        if (result.capacity != null) 'capacity': result.capacity,
-      });
+      };
+      final capacityToSend = result.capacity ?? (newDayId != oldDayId ? entry.capacity : null);
+      if (capacityToSend != null) {
+        payload['capacity'] = capacityToSend;
+      }
+      await functions.httpsCallable('assignMultipleShifts').call(payload);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Guardia actualizada correctamente')),
+        SnackBar(
+          content: Text(
+            'Guardia actualizada – ${result.dayId} (${result.ranges.length} turno${result.ranges.length == 1 ? '' : 's'})',
+          ),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -934,7 +959,7 @@ class _ShiftEditorSheet extends StatefulWidget {
   const _ShiftEditorSheet({
     required this.title,
     required this.userLabel,
-    required this.dayLabel,
+    required this.initialDay,
     required this.initialRanges,
     required this.timeOptions,
     this.initialCapacity,
@@ -942,7 +967,7 @@ class _ShiftEditorSheet extends StatefulWidget {
 
   final String title;
   final String userLabel;
-  final String dayLabel;
+  final DateTime initialDay;
   final List<ShiftInterval> initialRanges;
   final List<String> timeOptions;
   final int? initialCapacity;
@@ -955,6 +980,7 @@ class _ShiftEditorSheetState extends State<_ShiftEditorSheet> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   late List<ShiftInterval> _ranges;
   late TextEditingController _capacityCtrl;
+  late DateTime _selectedDay;
 
   @override
   void initState() {
@@ -965,6 +991,7 @@ class _ShiftEditorSheetState extends State<_ShiftEditorSheet> {
     _capacityCtrl = TextEditingController(
       text: widget.initialCapacity != null ? '${widget.initialCapacity}' : '',
     );
+    _selectedDay = DateTime(widget.initialDay.year, widget.initialDay.month, widget.initialDay.day);
   }
 
   @override
@@ -977,6 +1004,7 @@ class _ShiftEditorSheetState extends State<_ShiftEditorSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final localeTag = Localizations.maybeLocaleOf(context)?.toLanguageTag() ?? 'es';
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: SafeArea(
@@ -1004,8 +1032,24 @@ class _ShiftEditorSheetState extends State<_ShiftEditorSheet> {
                 ),
                 const SizedBox(height: 8),
                 Text('Usuario: ${widget.userLabel}'),
-                Text('Día: ${widget.dayLabel}'),
+                const SizedBox(height: 20),
+                const _SectionTitle('Fecha'),
+                const SizedBox(height: 8),
+                Card(
+                  margin: EdgeInsets.zero,
+                  child: ListTile(
+                    leading: const Icon(Icons.calendar_today_outlined),
+                    title: Text(DateFormat.yMMMMEEEEd(localeTag).format(_selectedDay)),
+                    subtitle: Text('ID: ${DateFormat('yyyy-MM-dd').format(_selectedDay)}'),
+                    trailing: TextButton(
+                      onPressed: _pickDay,
+                      child: const Text('Cambiar'),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 16),
+                const _SectionTitle('Horarios'),
+                const SizedBox(height: 8),
                 ..._ranges.asMap().entries.map((entry) {
                   final index = entry.key;
                   final range = entry.value;
@@ -1032,7 +1076,9 @@ class _ShiftEditorSheetState extends State<_ShiftEditorSheet> {
                   icon: const Icon(Icons.add),
                   label: const Text('Agregar horario'),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 20),
+                const _SectionTitle('Capacidad'),
+                const SizedBox(height: 8),
                 TextFormField(
                   controller: _capacityCtrl,
                   decoration: const InputDecoration(
@@ -1056,6 +1102,20 @@ class _ShiftEditorSheetState extends State<_ShiftEditorSheet> {
         ),
       ),
     );
+  }
+
+  Future<void> _pickDay() async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: _selectedDay,
+      firstDate: DateTime.utc(2020, 1, 1),
+      lastDate: DateTime.utc(2030, 12, 31),
+    );
+    if (selected != null) {
+      setState(() {
+        _selectedDay = selected;
+      });
+    }
   }
 
   void _submit() {
@@ -1082,7 +1142,11 @@ class _ShiftEditorSheetState extends State<_ShiftEditorSheet> {
       }
     }
     Navigator.of(context).pop(
-      _ShiftEditorResult(ranges: sanitized, capacity: capacity),
+      _ShiftEditorResult(
+        day: DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day),
+        ranges: sanitized,
+        capacity: capacity,
+      ),
     );
   }
 }
@@ -1167,6 +1231,21 @@ class _TimeRangeEditor extends StatelessWidget {
   }
 }
 
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Text(
+      label,
+      style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+    );
+  }
+}
+
 class _CreateShiftSheet extends StatefulWidget {
   const _CreateShiftSheet({required this.timeOptions});
 
@@ -1203,6 +1282,7 @@ class _CreateShiftSheetState extends State<_CreateShiftSheet> {
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final theme = Theme.of(context);
+    final localeTag = Localizations.maybeLocaleOf(context)?.toLanguageTag() ?? 'es';
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: SafeArea(
@@ -1244,7 +1324,9 @@ class _CreateShiftSheetState extends State<_CreateShiftSheet> {
                     setState(() => _mode = selection.first);
                   },
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 20),
+                const _SectionTitle('Identificador'),
+                const SizedBox(height: 8),
                 TextFormField(
                   controller: _identifierCtrl,
                   decoration: InputDecoration(
@@ -1264,17 +1346,24 @@ class _CreateShiftSheetState extends State<_CreateShiftSheet> {
                     return null;
                   },
                 ),
-                const SizedBox(height: 12),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.calendar_today_outlined),
-                  title: Text('Día ${DateFormat('yyyy-MM-dd').format(_selectedDay)}'),
-                  trailing: TextButton(
-                    onPressed: _pickDate,
-                    child: const Text('Cambiar'),
+                const SizedBox(height: 20),
+                const _SectionTitle('Fecha'),
+                const SizedBox(height: 8),
+                Card(
+                  margin: EdgeInsets.zero,
+                  child: ListTile(
+                    leading: const Icon(Icons.calendar_today_outlined),
+                    title: Text(DateFormat.yMMMMEEEEd(localeTag).format(_selectedDay)),
+                    subtitle: Text('ID: ${DateFormat('yyyy-MM-dd').format(_selectedDay)}'),
+                    trailing: TextButton(
+                      onPressed: _pickDate,
+                      child: const Text('Cambiar'),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
+                const _SectionTitle('Horarios'),
+                const SizedBox(height: 8),
                 ..._ranges.asMap().entries.map((entry) {
                   final index = entry.key;
                   final range = entry.value;
@@ -1301,7 +1390,9 @@ class _CreateShiftSheetState extends State<_CreateShiftSheet> {
                   icon: const Icon(Icons.add),
                   label: const Text('Agregar horario'),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 20),
+                const _SectionTitle('Capacidad'),
+                const SizedBox(height: 8),
                 TextFormField(
                   controller: _capacityCtrl,
                   decoration: const InputDecoration(
@@ -1400,6 +1491,13 @@ int? _hhmmToMinutes(String value) {
   if (hour == null || minute == null) return null;
   return hour * 60 + minute;
 }
+
+@visibleForTesting
+List<ShiftInterval>? sanitizeIntervalsForTesting(List<ShiftInterval> ranges) =>
+    _sanitizeRanges(ranges);
+
+@visibleForTesting
+int? hhmmToMinutesForTesting(String value) => _hhmmToMinutes(value);
 
 class _RangeMinutes {
   const _RangeMinutes(this.start, this.end);
